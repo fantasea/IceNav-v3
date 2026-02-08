@@ -13,6 +13,20 @@
 #include <Streamers.h>
 #include "settings.hpp"
 #include <vector>
+#include <cstdarg>
+
+/**
+ * @brief GPS log buffering for debug display.
+ *        gpsLog() is thread-safe: it always writes to a buffer.
+ *        The LVGL timer drains the buffer on the GUI thread.
+ */
+void gpsLog(const char* fmt, ...);
+
+#define GPS_LOG_BUFFER_SIZE 1024
+#define GPS_LOG_MSG_SIZE 128
+extern char gpsLogBuffer[GPS_LOG_BUFFER_SIZE];
+extern volatile uint16_t gpsLogWritePos;
+extern volatile uint16_t gpsLogReadPos;
 
 
 extern uint8_t GPS_TX; /**< GPS TX pin number. */

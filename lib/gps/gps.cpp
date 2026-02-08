@@ -21,6 +21,37 @@ NMEAGPS GPS;              	       /**< NMEAGPS parser instance. */
 
 static const char* TAG PROGMEM = "GPS";
 
+char gpsLogBuffer[GPS_LOG_BUFFER_SIZE];
+volatile uint16_t gpsLogWritePos = 0;
+volatile uint16_t gpsLogReadPos = 0;
+
+/**
+ * @brief Log a GPS debug message. Thread-safe: writes to a ring buffer.
+ *        Messages are drained by the LVGL timer on the GUI thread.
+ *        Safe to call from any core/task.
+ */
+void gpsLog(const char* fmt, ...)
+{
+    char buf[GPS_LOG_MSG_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    ESP_LOGI("GPS", "%s", buf);
+
+    size_t len = strlen(buf);
+    // Need space for message + newline + null terminator
+    uint16_t wp = gpsLogWritePos;
+    if (wp + len + 2 <= GPS_LOG_BUFFER_SIZE)
+    {
+        memcpy(gpsLogBuffer + wp, buf, len);
+        wp += len;
+        gpsLogBuffer[wp++] = '\n';
+        gpsLogBuffer[wp] = '\0';
+        gpsLogWritePos = wp;
+    }
+}
+
 Gps::Gps() {}
 
 
@@ -34,44 +65,50 @@ Gps::Gps() {}
 void Gps::init()
 {
     gpsPort.setRxBufferSize(1024);
+    gpsLog("RX pin: %d  TX pin: %d", GPS_RX, GPS_TX);
 
     if (gpsBaud != 4)
+    {
+        gpsLog("Baud: %ld (preset %d)", GPS_BAUD[gpsBaud], gpsBaud);
         gpsPort.begin(GPS_BAUD[gpsBaud], SERIAL_8N1, GPS_RX, GPS_TX);
+        gpsLog("Serial port opened");
+    }
     else
     {
+        gpsLog("Baud: auto-detect");
+        gpsLog("Detecting baud rate...");
         gpsBaudDetected = autoBaud();
 
         if (gpsBaudDetected != 0)
+        {
+            gpsLog("Baud detected: %ld", gpsBaudDetected);
             gpsPort.begin(gpsBaudDetected, SERIAL_8N1, GPS_RX, GPS_TX);
+            gpsLog("Serial port opened");
+        }
+        else
+        {
+            gpsLog("Baud detect FAILED");
+        }
     }
 
     #ifdef AT6558D_GPS
-        // FACTORY RESET
-        // gpsPort.println("$PCAS10,3*1F\r\n");
-        // gpsPort.flush();
-        // delay(100);
-
-        // GPS
-        // gpsPort.println("$PCAS04,1*18\r\n")
-
-        // GPS+GLONASS
-        // gpsPort.println("$PCAS04,5*1C\r\n");
-
-        // GPS+BDS+GLONASS
+        gpsLog("AT6558D: config GPS+BDS+GLONASS");
         gpsPort.println("$PCAS04,7*1E\r\n");
         gpsPort.flush();
         delay(100);
 
-        // Update Rate
+        gpsLog("AT6558D: update rate set");
         gpsPort.println(GPS_RATE_PCAS[gpsUpdate]);
         gpsPort.flush();
         delay(100);
 
-        // Set NMEA 4.1
+        gpsLog("AT6558D: NMEA 4.1 set");
         gpsPort.println("$PCAS05,2*1A\r\n");
         gpsPort.flush();
         delay(100);
     #endif
+
+    gpsLog("GPS init complete");
 }
 
 /**
